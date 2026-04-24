@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+.row {
+  display: flex;
+  align-items: center;
+  border-bottom: 2px solid black;
+  height: 90px;
+}
+
+.label {
+  width: 120px;
+  text-align: center;
+  font-weight: bold;
+}
+
+/* 分级颜色 */
+.level-6 { background: red; position: relative; top: -10px; }
+.level-5 { background: orange; }
+.level-4 { background: yellow; }
+.level-3 { background: #fff176; }
+.level-2 { background: #eee; }
+.level-1 { background: #ddd; }
+
+.items {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-left: 10px;
+}
+
+.card img {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border: 1px solid black;
+  cursor: pointer;
+}
+</style>
+<meta charset="UTF-8">
+<title>位移必吃排行榜</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+</head>
+
+<body>
+
+<!-- 登录 -->
+<div id="loginBox">
+  <h3>请输入用户名</h3>
+  <input id="usernameInput">
+  <button onclick="setUsername()">进入</button>
+</div>
+
+<!-- 主界面 -->
+<div id="main" style="display:none">
+
+<!-- 用户栏 -->
+<div style="margin-bottom:10px;border-bottom:1px solid #000;padding-bottom:5px">
+  当前用户：<span id="currentUser" style="font-weight:bold;color:red"></span>
+  <button onclick="changeUser()">切换账号</button>
+  <button onclick="logout()">退出</button>
+</div>
+
+<h2>位移必吃榜</h2>
+<div id="rankBoard"></div>
+
+<hr>
+
+<h3>添加餐厅</h3>
+<input id="name" placeholder="店名"><br>
+<input id="img" placeholder="图片URL"><br>
+<input id="msg" placeholder="评价"><br>
+
+<div>
+评分：
+<button onclick="setScore(6)">夯爆了</button>
+<button onclick="setScore(5)">夯</button>
+<button onclick="setScore(4)">顶级</button>
+<button onclick="setScore(3)">人上人</button>
+<button onclick="setScore(2)">NPC</button>
+<button onclick="setScore(1)">拉完了</button>
+</div>
+
+<button onclick="addRestaurant()">提交</button>
+
+</div>
+
+<!-- 弹窗 -->
+<div id="modal" style="
+display:none;
+position:fixed;
+top:20%;
+left:30%;
+width:40%;
+background:#fff;
+padding:20px;
+border:2px solid #000;
+z-index:1000">
+
+<div id="modalContent"></div>
+
+<h3>你的评价</h3>
+<input id="commentInput">
+
+<div id="scoreBtns"></div>
+
+<br>
+<button onclick="closeModal()">关闭</button>
+
+</div>
+
+<script>
+
+const SUPABASE_URL = "https://awqqwkxidmoubltinagf.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF3cXF3a3hpZG1vdWJsdGluYWdmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5NDA1NDQsImV4cCI6MjA5MjUxNjU0NH0.cHGFLfy_XEppXuYt-eUhijky4f9qty-3W5AL0mCHeOE";
+
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// 等级
+const levelMap = {
+  6:"夯爆了",5:"夯",4:"顶级",3:"人上人",2:"NPC",1:"拉完了"
+};
+
+// 用户
+let username = localStorage.getItem("user");
+
+// 登录
+function setUsername(){
+  const val = document.getElementById("usernameInput").value.trim();
+  if(!val){ alert("必须输入用户名"); return; }
+  localStorage.setItem("user", val);
+  location.reload();
+}
+
+// 退出
+function logout(){
+  localStorage.removeItem("user");
+  location.reload();
+}
+
+// 切换用户
+function changeUser(){
+  const val = prompt("输入新用户名");
+  if(!val || !val.trim()){ alert("不能为空"); return; }
+  localStorage.setItem("user", val.trim());
+  location.reload();
+}
+
+// 初始化
+if(username){
+  document.getElementById("loginBox").style.display="none";
+  document.getElementById("main").style.display="block";
+  document.getElementById("currentUser").innerText=username;
+  load();
+}
+
+// 当前评分
+let currentScore = null;
+let currentRestaurant = null;
+
+// 选择评分
+function setScore(s){
+  currentScore = s;
+  alert("已选择："+levelMap[s]);
+}
+
+// 加载数据
+async function load(){
+  const {data:restaurants} = await db.from("restaurants").select("*");
+  const {data:ratings} = await db.from("ratings").select("*");
+
+  const merged = restaurants.map(r=>{
+    const rs = ratings.filter(x=>String(x.restaurant_id)==String(r.id));
+
+    const avg = rs.length
+      ? Math.round(rs.reduce((s,x)=>s+x.score,0)/rs.length)
+      : null;
+
+    return {...r, avg, ratings:rs};
+  });
+
+  merged.sort((a,b)=>(b.avg||0)-(a.avg||0));
+
+const levels = [6,5,4,3,2,1];
+
+const html = levels.map(level => {
+
+  const list = merged.filter(r => r.avg === level);
+
+  return `
+    <div class="row level-${level}">
+      <div class="label">${levelMap[level]}</div>
+      <div class="items">
+        ${list.map(r => `
+          <div class="card" onclick="openDetail('${r.id}')">
+            <img src="${r.image || 'https://via.placeholder.com/60'}" title="${r.name}">
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}).join("");
+
+document.getElementById("rankBoard").innerHTML = html;
+
+  window.ALL = merged;
+}
+
+// 添加餐厅
+async function addRestaurant(){
+
+  const nameVal = document.getElementById("name").value.trim();
+  const imgVal = document.getElementById("img").value.trim();
+  const msgVal = document.getElementById("msg").value.trim();
+
+  if(!nameVal){
+    alert("店名不能为空");
+    return;
+  }
+
+  if(!currentScore){
+    alert("必须选择评分");
+    return;
+  }
+
+  const {data} = await db.from("restaurants")
+    .insert({
+      name:nameVal,
+      image:imgVal,
+      creator:username,
+      creator_msg:msgVal
+    })
+    .select();
+
+  const r = data[0];
+
+  await db.from("ratings").insert({
+    restaurant_id:r.id,
+    user:username,
+    score:currentScore,
+    comment:msgVal
+  });
+
+  location.reload();
+}
+
+// 打开详情
+function openDetail(id){
+  const r = ALL.find(x=>x.id==id);
+  currentRestaurant = id;
+
+  document.getElementById("modal").style.display="block";
+
+  document.getElementById("modalContent").innerHTML = `
+    <h3>${r.name}</h3>
+    <p>综合评分：${levelMap[r.avg]||"暂无"}</p>
+    <p>创建者：${r.creator||"未知"}</p>
+    <p>${r.creator_msg||""}</p>
+    <hr>
+    ${r.ratings.map(x=>`
+      <div>${x.user}：${levelMap[x.score]} - ${x.comment}</div>
+    `).join("")}
+  `;
+
+  document.getElementById("scoreBtns").innerHTML =
+    Object.entries(levelMap)
+      .reverse()
+      .map(([s,l])=>`<button onclick="submitRating(${s})">${l}</button>`)
+      .join("");
+}
+
+// 提交评分
+async function submitRating(score){
+  const comment = document.getElementById("commentInput").value;
+
+  await db.from("ratings").insert({
+    restaurant_id:currentRestaurant,
+    user:username,
+    score:score,
+    comment:comment
+  });
+
+  location.reload();
+}
+
+// 关闭弹窗
+function closeModal(){
+  document.getElementById("modal").style.display="none";
+}
+
+</script>
+
+</body>
+</html>
