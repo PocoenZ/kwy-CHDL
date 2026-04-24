@@ -71,13 +71,8 @@
   <input id="msg" placeholder="评价"><br><br>
 
   <div style="margin-bottom: 10px;">
-    评分：
-    <button onclick="setScore(6)">夯爆了</button>
-    <button onclick="setScore(5)">夯</button>
-    <button onclick="setScore(4)">顶级</button>
-    <button onclick="setScore(3)">人上人</button>
-    <button onclick="setScore(2)">NPC</button>
-    <button onclick="setScore(1)">拉完了</button>
+    <span style="font-weight: bold; margin-right: 10px;">评分：</span>
+    <span id="addScoreBtns"></span>
   </div>
 
   <button onclick="addRestaurant()">提交</button>
@@ -87,13 +82,16 @@
 <div id="modal" style="
   display:none;
   position:fixed;
-  top:20%;
-  left:30%;
-  width:40%;
+  top:10%;
+  left:25%;
+  width:50%;
+  max-height: 80vh;
+  overflow-y: auto;
   background:#fff;
   padding:20px;
   border:2px solid #000;
-  z-index:1000">
+  z-index:1000;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
 
   <div id="modalContent"></div>
 
@@ -119,6 +117,12 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const levelMap = {
   6: "夯爆了", 5: "夯", 4: "顶级", 3: "人上人", 2: "NPC", 1: "拉完了"
 };
+
+// 动态生成“添加餐厅”处的评分单选框
+document.getElementById("addScoreBtns").innerHTML = Object.entries(levelMap)
+  .reverse()
+  .map(([s, l]) => `<label style="margin-right:10px; cursor:pointer;"><input type="radio" name="addScore" value="${s}"> ${l}</label>`)
+  .join("");
 
 // 用户管理
 let username = localStorage.getItem("user");
@@ -149,15 +153,8 @@ if (username) {
   load();
 }
 
-let currentScore = null;
 let currentRestaurant = null;
 window.ALL = [];
-
-// 主界面添加餐厅的评分选择
-function setScore(s) {
-  currentScore = s;
-  alert("已选择：" + levelMap[s]);
-}
 
 // 加载并渲染数据
 async function load() {
@@ -193,22 +190,26 @@ async function load() {
   document.getElementById("rankBoard").innerHTML = html;
 }
 
-// 添加餐厅（包含图片上传逻辑）
+// 添加餐厅（包含图片上传与读取单选框评分）
 async function addRestaurant() {
   const nameVal = document.getElementById("name").value.trim();
   const msgVal = document.getElementById("msg").value.trim();
   const fileInput = document.getElementById("imgFile");
   const file = fileInput.files[0];
+  
+  // 获取选择的评分单选框
+  const selectedScore = document.querySelector('input[name="addScore"]:checked');
 
   if (!nameVal) {
     alert("店名不能为空");
     return;
   }
-  if (!currentScore) {
-    alert("必须在上方按钮选择一个评分");
+  if (!selectedScore) {
+    alert("必须选择一个评分");
     return;
   }
 
+  const scoreVal = parseInt(selectedScore.value);
   let imgUrl = "";
 
   // 处理图片上传
@@ -241,7 +242,7 @@ async function addRestaurant() {
   await db.from("ratings").insert({
     restaurant_id: r.id,
     user: username,
-    score: currentScore,
+    score: scoreVal,
     comment: msgVal
   });
 
@@ -255,18 +256,30 @@ function openDetail(id) {
 
   document.getElementById("modal").style.display = "block";
 
+  // 弹窗内容生成（包含大图和留言列表）
   document.getElementById("modalContent").innerHTML = `
-    <h3>${r.name}</h3>
-    <p>综合评分：${levelMap[r.avg] || "暂无"}</p>
-    <p>创建者：${r.creator || "未知"}</p>
-    <p>创建者寄语：${r.creator_msg || "无"}</p>
+    <h3 style="text-align:center; margin-top: 0;">${r.name}</h3>
+    
+    <div style="text-align: center; margin-bottom: 15px;">
+      <img src="${r.image || 'https://via.placeholder.com/200'}" alt="${r.name}" style="max-width: 100%; max-height: 250px; object-fit: contain; border-radius: 8px; border: 1px solid #ddd;">
+    </div>
+
+    <p><strong>综合评分：</strong>${levelMap[r.avg] || "暂无"}</p>
+    <p><strong>创建者：</strong>${r.creator || "未知"}</p>
+    <p><strong>创建者寄语：</strong>${r.creator_msg || "无"}</p>
     <hr>
-    ${r.ratings.map(x => `
-      <div style="margin-bottom:5px;"><strong>${x.user}</strong>：${levelMap[x.score]} - ${x.comment || "无留言"}</div>
-    `).join("")}
+    <h4>历史评价</h4>
+    <div style="max-height: 150px; overflow-y: auto; background: #f9f9f9; padding: 10px; border-radius: 5px;">
+      ${r.ratings.map(x => `
+        <div style="margin-bottom:8px; border-bottom: 1px dashed #ccc; padding-bottom: 5px;">
+          <strong>${x.user}</strong> 给了 <span style="color:red;">[${levelMap[x.score]}]</span><br>
+          <span style="font-size: 0.9em; color: #555;">留言：${x.comment || "这家伙什么也没留下"}</span>
+        </div>
+      `).join("")}
+    </div>
   `;
 
-  // 生成单选框
+  // 生成弹窗底部的单选框
   document.getElementById("scoreBtns").innerHTML = Object.entries(levelMap)
     .reverse()
     .map(([s, l]) => `<label style="margin-right:10px; cursor:pointer;"><input type="radio" name="modalScore" value="${s}"> ${l}</label>`)
